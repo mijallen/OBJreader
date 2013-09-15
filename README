@@ -1,1 +1,7 @@
-Hello World
+uploading:
+git commit -m 'message'
+git push origin master
+
+downloading:
+git fetch origin master
+git rebase master
