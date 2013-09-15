@@ -19,10 +19,10 @@ struct model {
   float* vertex;
   float* normal;
   float* color;
-  int* index;
+  size_t* triangle;
 
   size_t vertexCount;
-  size_t indexCount;
+  size_t triangleCount;
 };
 
 
@@ -33,7 +33,7 @@ struct model {
 
 model_t* model_load(const char* filePath) {
   model_t *out;
-  vector_t *vertex, *index;
+  vector_t *vertex, *triangle;
   vector_t *tokens, *face_elements;
   size_t iter;
 
@@ -43,7 +43,7 @@ model_t* model_load(const char* filePath) {
   out = (model_t*)calloc(1, sizeof(model_t));
 
   vertex = vector_create();
-  index = vector_create();
+  triangle = vector_create();
   tokens = vector_create();
   face_elements = vector_create();
 
@@ -62,15 +62,15 @@ model_t* model_load(const char* filePath) {
       if (strcmp((char*)vector_get(tokens, 0), "f") == 0) {
         for (iter = 2; iter < vector_size(tokens) - 1; ++iter) {
           vector_getTokens(face_elements, (char*)vector_get(tokens, 1), "/");
-          vector_pushi( index, strtol( (char*)vector_get(face_elements, 0), NULL, 10) - 1 );
+          vector_pushi( triangle, strtol( (char*)vector_get(face_elements, 0), NULL, 10) - 1 );
           vector_deepClear(face_elements);
 
           vector_getTokens(face_elements, (char*)vector_get(tokens, iter), "/");
-          vector_pushi( index, strtol( (char*)vector_get(face_elements, 0), NULL, 10) - 1 );
+          vector_pushi( triangle, strtol( (char*)vector_get(face_elements, 0), NULL, 10) - 1 );
           vector_deepClear(face_elements);
 
           vector_getTokens(face_elements, (char*)vector_get(tokens, iter + 1), "/");
-          vector_pushi( index, strtol( (char*)vector_get(face_elements, 0), NULL, 10) - 1 );
+          vector_pushi( triangle, strtol( (char*)vector_get(face_elements, 0), NULL, 10) - 1 );
           vector_deepClear(face_elements);
         }
       }
@@ -81,14 +81,14 @@ model_t* model_load(const char* filePath) {
 
   fclose(infile);
 
-  out->vertexCount = vector_size(vertex);
-  out->indexCount = vector_size(index);
+  out->vertexCount = vector_size(vertex) / 3;
+  out->triangleCount = vector_size(triangle) / 3;
 
   out->vertex = vector_arrayf(vertex);
-  out->index = vector_arrayi(index);
+  out->triangle = (size_t*)vector_arrayi(triangle);
 
   vector_destroy(vertex);
-  vector_destroy(index);
+  vector_destroy(triangle);
   vector_destroy(tokens);
   vector_destroy(face_elements);
 
@@ -105,8 +105,8 @@ size_t model_vertexCount(model_t* M) {
   return M->vertexCount;
 }
 
-size_t model_indexCount(model_t* M) {
-  return M->indexCount;
+size_t model_triangleCount(model_t* M) {
+  return M->triangleCount;
 }
 
 
@@ -115,8 +115,8 @@ float model_calculateRadius(model_t* M) {
   size_t iter;
   float len, radius = 0.f;
 
-  for (iter = 0; iter < M->vertexCount; iter += 3) {
-    len = magnitude( &(M->vertex[iter]) );
+  for (iter = 0; iter < M->vertexCount; ++iter) {
+    len = magnitude( &(M->vertex[3 * iter]) );
     if (radius < len) radius = len;
   }
 
@@ -127,13 +127,17 @@ void model_drawGL(model_t* M) {
   glEnableClientState(GL_VERTEX_ARRAY);
   glVertexPointer(3, GL_FLOAT, 0, M->vertex);
 
-  glEnableClientState(GL_NORMAL_ARRAY);
-  glNormalPointer(GL_FLOAT, 0, M->normal);
+  if (M->normal != NULL) {
+    glEnableClientState(GL_NORMAL_ARRAY);
+    glNormalPointer(GL_FLOAT, 0, M->normal);
+  }
 
-  glEnableClientState(GL_COLOR_ARRAY);
-  glColorPointer(3, GL_FLOAT, 0, M->color);
+  if (M->color != NULL) {
+    glEnableClientState(GL_COLOR_ARRAY);
+    glColorPointer(3, GL_FLOAT, 0, M->color);
+  }
 
-  glDrawElements(GL_TRIANGLES, M->indexCount, GL_UNSIGNED_INT, M->index);
+  glDrawElements(GL_TRIANGLES, 3 * M->triangleCount, GL_UNSIGNED_INT, M->triangle);
 
   glDisableClientState(GL_COLOR_ARRAY);
   glDisableClientState(GL_NORMAL_ARRAY);
@@ -150,14 +154,14 @@ void model_calculateNormals(model_t* M) {
   size_t iter, vertexA, vertexB, vertexC;
   float edgeAB[3], edgeAC[3], cross[3], prev[3];
 
-  float* normal = (float*)calloc(M->vertexCount, sizeof(float));
+  float* normal = (float*)calloc(M->vertexCount, 3 * sizeof(float));
   if (M->normal != NULL) free(M->normal);
   prev[0] = 0.f; prev[1] = 0.f; prev[2] = 0.f;
 
-  for (iter = 0; iter < M->indexCount; iter += 3) {
-    vertexA = 3 * M->index[iter + 0];
-    vertexB = 3 * M->index[iter + 1];
-    vertexC = 3 * M->index[iter + 2];
+  for (iter = 0; iter < M->triangleCount; ++iter) {
+    vertexA = 3 * M->triangle[3 * iter + 0];
+    vertexB = 3 * M->triangle[3 * iter + 1];
+    vertexC = 3 * M->triangle[3 * iter + 2];
 
     subtract_vec(edgeAB, &(M->vertex[vertexB]), &(M->vertex[vertexA]));
     subtract_vec(edgeAC, &(M->vertex[vertexC]), &(M->vertex[vertexA]));
@@ -179,7 +183,7 @@ void model_calculateNormals(model_t* M) {
     }
   }
 
-  for (iter = 0; iter < M->vertexCount; iter += 3) normalize( &(normal[iter]) );
+  for (iter = 0; iter < M->vertexCount; ++iter) normalize( &(normal[3 * iter]) );
 
   M->normal = normal;
 }
@@ -190,10 +194,10 @@ void model_center(model_t* M) { /* NOTE: can change output of model_radius */
   float tempX, tempY, tempZ, weight;
   float edgeAB[3], edgeAC[3], cross[3];
 
-  for (iter = 0; iter < M->indexCount; iter += 3) {
-    vertexA = 3 * M->index[iter + 0];
-    vertexB = 3 * M->index[iter + 1];
-    vertexC = 3 * M->index[iter + 2];
+  for (iter = 0; iter < M->triangleCount; ++iter) {
+    vertexA = 3 * M->triangle[3 * iter + 0];
+    vertexB = 3 * M->triangle[3 * iter + 1];
+    vertexC = 3 * M->triangle[3 * iter + 2];
 
     tempX = M->vertex[vertexA + 0] + M->vertex[vertexB + 0];
     tempX = 0.333f * (tempX + M->vertex[vertexC + 0]);
@@ -217,21 +221,23 @@ void model_center(model_t* M) { /* NOTE: can change output of model_radius */
 
   scale = 1.f / scale;
 
-  for (iter = 0; iter < M->vertexCount; iter += 3) {
-    M->vertex[iter + 0] -= xSum * scale;
-    M->vertex[iter + 1] -= ySum * scale;
-    M->vertex[iter + 2] -= zSum * scale;
+  for (iter = 0; iter < M->vertexCount; ++iter) {
+    M->vertex[3 * iter + 0] -= xSum * scale;
+    M->vertex[3 * iter + 1] -= ySum * scale;
+    M->vertex[3 * iter + 2] -= zSum * scale;
   }
 }
 
 void model_randomColors(model_t* M) {
   size_t iter;
 
-  float* color = (float*)calloc(M->vertexCount, sizeof(float));
+  float* color = (float*)calloc(M->vertexCount, 3 * sizeof(float));
   if (M->color != NULL) free(M->color);
 
   for (iter = 0; iter < M->vertexCount; ++iter) {
-    color[iter] = rand_fract();
+    color[3 * iter + 0] = rand_fract();
+    color[3 * iter + 1] = rand_fract();
+    color[3 * iter + 2] = rand_fract();
   }
 
   M->color = color;
@@ -247,6 +253,6 @@ void model_destroy(model_t* M) {
   free(M->vertex);
   if (M->normal != NULL) free(M->normal);
   if (M->color != NULL) free(M->color);
-  free(M->index);
+  free(M->triangle);
   free(M);
 }
