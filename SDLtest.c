@@ -69,9 +69,8 @@ void init() {
 
   glEnable(GL_DEPTH_TEST);
   glDisable(GL_CULL_FACE);
-  glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
-  object = model_load("simpleCube.obj");
+  object = model_load("completeCube.obj");
   model_calculateNormals(object);
   model_randomColors(object);
 
@@ -97,6 +96,7 @@ void display() {
   glRotatef(2.f * angle, 0.f, 1.f, 0.f);
   glScalef(scale, scale, scale);
 
+  glColor3f(1.f, 1.f, 1.f);
   model_drawGL(object);
 
   glLoadIdentity();

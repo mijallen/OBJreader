@@ -11,7 +11,7 @@ model_t* model_load(const char* filePath);
 /* accessor functions (getter) */
 
 unsigned int model_vertexCount(model_t*);
-unsigned int model_triangleCount(model_t*);
+unsigned int model_indexCount(model_t*);
 
 float model_calculateRadius(model_t*);
 void model_drawGL(model_t*);

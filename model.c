@@ -6,6 +6,7 @@
 
 #include <GL/gl.h>
 
+#include "hashmap.h"
 #include "vector.h"
 #include "3dMath.h"
 
@@ -18,12 +19,74 @@
 struct model {
   float* vertex;
   float* normal;
+  float* texcoord;
   float* color;
-  size_t* triangle;
+
+  unsigned int* triangle;
+  unsigned int* groupTag;
 
   size_t vertexCount;
   size_t triangleCount;
 };
+
+
+
+/* helper functions */
+
+
+
+void vector_getv(float* vOut, vector_t* V, size_t index) {
+  vOut[0] = vector_getf(V, index + 0);
+  vOut[1] = vector_getf(V, index + 1);
+  vOut[2] = vector_getf(V, index + 2);
+}
+
+
+
+void vector_pushv(vector_t* V, float* vec) {
+  vector_pushf(V, vec[0]);
+  vector_pushf(V, vec[1]);
+  vector_pushf(V, vec[2]);
+}
+
+
+
+void load_dataGather(FILE* infile, vector_t* position_data, vector_t* texcoord_data, vector_t* normal_data) {
+  vector_t *tokens;
+  char line[1024];
+
+  tokens = vector_create();
+
+  rewind(infile);
+
+  while (fgets(line, 1023, infile) != NULL) {
+    vector_getTokens(tokens, line, " \t\r\n");
+
+    if (vector_size(tokens) == 0) {
+      vector_deepClear(tokens);
+      continue;
+    }
+
+    if (strcmp((char*)vector_get(tokens, 0), "v") == 0) {
+      vector_pushf( position_data, strtod( (char*)vector_get(tokens, 1), NULL ) );
+      vector_pushf( position_data, strtod( (char*)vector_get(tokens, 2), NULL ) );
+      vector_pushf( position_data, strtod( (char*)vector_get(tokens, 3), NULL ) );
+    }
+    else if (strcmp((char*)vector_get(tokens, 0), "vt") == 0) {
+      vector_pushf( texcoord_data, strtod( (char*)vector_get(tokens, 1), NULL ) );
+      vector_pushf( texcoord_data, strtod( (char*)vector_get(tokens, 2), NULL ) );
+    }
+    else if (strcmp((char*)vector_get(tokens, 0), "vn") == 0) {
+      vector_pushf( normal_data, strtod( (char*)vector_get(tokens, 1), NULL ) );
+      vector_pushf( normal_data, strtod( (char*)vector_get(tokens, 2), NULL ) );
+      vector_pushf( normal_data, strtod( (char*)vector_get(tokens, 3), NULL ) );
+    }
+
+    vector_deepClear(tokens);
+  }
+
+  vector_destroy(tokens);
+}
 
 
 
@@ -33,47 +96,110 @@ struct model {
 
 model_t* model_load(const char* filePath) {
   model_t *out;
-  vector_t *vertex, *triangle;
+
+  vector_t *position_data, *texcoord_data, *normal_data;
+  vector_t *position, *texcoord, *normal;
+
+  vector_t *triangle, *groupTag;
   vector_t *tokens, *face_elements;
-  size_t iter;
+
+  unsigned int iter, vertex_iter, collection[3];
+  unsigned int faceTag = 0, vertex_count = 0;
+  unsigned int position_index, texcoord_index, normal_index;
+
+  float position_temp[3], texcoord_temp[3], normal_temp[3];
 
   FILE* infile;
   char line[1024];
+  char *vertex_str, *copy;
+
+  mapnode_t* result;
+  hashmap_t* vertices = hashmap_create();
 
   out = (model_t*)calloc(1, sizeof(model_t));
 
-  vertex = vector_create();
+  position_data = vector_create();
+  texcoord_data = vector_create();
+  normal_data = vector_create();
+
+  position = vector_create();
+  texcoord = vector_create();
+  normal = vector_create();
+
   triangle = vector_create();
+  groupTag = vector_create();
+
   tokens = vector_create();
   face_elements = vector_create();
 
   infile = fopen(filePath, "r");
 
+  load_dataGather(infile, position_data, texcoord_data, normal_data);
+  rewind(infile);
+
   while (fgets(line, 1023, infile) != NULL) {
-    vector_getTokens(tokens, line, " ");
+    vector_getTokens(tokens, line, " \t\r\n");
 
-    if (vector_size(tokens) > 0) {
-      if (strcmp((char*)vector_get(tokens, 0), "v") == 0) {
-        vector_pushf( vertex, strtod( (char*)vector_get(tokens, 1), NULL ) );
-        vector_pushf( vertex, strtod( (char*)vector_get(tokens, 2), NULL ) );
-        vector_pushf( vertex, strtod( (char*)vector_get(tokens, 3), NULL ) );
-      }
+    if (vector_size(tokens) == 0) {
+      vector_deepClear(tokens);
+      continue;
+    }
 
-      if (strcmp((char*)vector_get(tokens, 0), "f") == 0) {
-        for (iter = 2; iter < vector_size(tokens) - 1; ++iter) {
-          vector_getTokens(face_elements, (char*)vector_get(tokens, 1), "/");
-          vector_pushi( triangle, strtol( (char*)vector_get(face_elements, 0), NULL, 10) - 1 );
-          vector_deepClear(face_elements);
+    if (strcmp((char*)vector_get(tokens, 0), "f") == 0) {
+      for (iter = 2; iter < vector_size(tokens) - 1; ++iter) {
 
-          vector_getTokens(face_elements, (char*)vector_get(tokens, iter), "/");
-          vector_pushi( triangle, strtol( (char*)vector_get(face_elements, 0), NULL, 10) - 1 );
-          vector_deepClear(face_elements);
+        collection[0] = 1;
+        collection[1] = iter;
+        collection[2] = iter + 1;
 
-          vector_getTokens(face_elements, (char*)vector_get(tokens, iter + 1), "/");
-          vector_pushi( triangle, strtol( (char*)vector_get(face_elements, 0), NULL, 10) - 1 );
-          vector_deepClear(face_elements);
+        for (vertex_iter = 0; vertex_iter < 3; ++vertex_iter) {
+
+          vertex_str = (char*)vector_get(tokens, collection[vertex_iter]);
+          copy = (char*)calloc(strlen(vertex_str) + 1, sizeof(char));
+          sprintf(copy, "%s", vertex_str);
+
+          result = hashmap_search(vertices, copy);
+          if (result == NULL) {
+            printf("inserted vertex data '%s' with value %u\n", copy, vertex_count);
+            hashmap_insert(vertices, copy, vertex_count);
+
+            vector_getTokens(face_elements, (char*)vector_get(tokens, collection[vertex_iter]), "/");
+
+            position_index = strtol( (char*)vector_get(face_elements, 0), NULL, 10 ) - 1;
+            if (vector_size(face_elements) > 1)
+              texcoord_index = strtol( (char*)vector_get(face_elements, 1), NULL, 10 ) - 1;
+            if (vector_size(face_elements) > 2)
+              normal_index = strtol( (char*)vector_get(face_elements, 2), NULL, 10 ) - 1;
+
+            vector_deepClear(face_elements);
+
+            vector_getv(position_temp, position_data, 3 * position_index);
+            if (vector_size(face_elements) > 1)
+              vector_getv(texcoord_temp, texcoord_data, 3 * texcoord_index);
+            if (vector_size(face_elements) > 2)
+              vector_getv(normal_temp, normal_data, 3 * normal_index);
+
+            vector_pushv(position, position_temp);
+            if (vector_size(face_elements) > 1)
+              vector_pushv(texcoord, texcoord_temp);
+            if (vector_size(face_elements) > 2)
+              vector_pushv(normal, normal_temp);
+
+            vector_pushi(triangle, vertex_count);
+
+            ++vertex_count;
+          } else {
+            vector_pushi(triangle, mapnode_value(result));
+
+            free(copy);
+          }
+
         }
+
+        vector_pushi(groupTag, faceTag);
       }
+
+      ++faceTag;
     }
 
     vector_deepClear(tokens);
@@ -81,14 +207,30 @@ model_t* model_load(const char* filePath) {
 
   fclose(infile);
 
-  out->vertexCount = vector_size(vertex) / 3;
+  hashmap_deepClear(vertices);
+  hashmap_destroy(vertices);
+
+  out->vertexCount = vector_size(position) / 3;
   out->triangleCount = vector_size(triangle) / 3;
 
-  out->vertex = vector_arrayf(vertex);
-  out->triangle = (size_t*)vector_arrayi(triangle);
+  out->vertex = vector_arrayf(position);
+  out->texcoord = (vector_size(texcoord) > 0) ? vector_arrayf(texcoord) : NULL;
+  out->normal = (vector_size(normal) > 0) ? vector_arrayf(normal) : NULL;
 
-  vector_destroy(vertex);
+  out->triangle = (unsigned int*)vector_arrayi(triangle);
+  out->groupTag = (unsigned int*)vector_arrayi(groupTag);
+
+  vector_destroy(position_data);
+  vector_destroy(texcoord_data);
+  vector_destroy(normal_data);
+
+  vector_destroy(position);
+  vector_destroy(texcoord);
+  vector_destroy(normal);
+
   vector_destroy(triangle);
+  vector_destroy(groupTag);
+
   vector_destroy(tokens);
   vector_destroy(face_elements);
 
@@ -132,6 +274,11 @@ void model_drawGL(model_t* M) {
     glNormalPointer(GL_FLOAT, 0, M->normal);
   }
 
+  if (M->texcoord != NULL) {
+    glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+    glTexCoordPointer(2, GL_FLOAT, 0, M->texcoord);
+  }
+
   if (M->color != NULL) {
     glEnableClientState(GL_COLOR_ARRAY);
     glColorPointer(3, GL_FLOAT, 0, M->color);
@@ -140,6 +287,7 @@ void model_drawGL(model_t* M) {
   glDrawElements(GL_TRIANGLES, 3 * M->triangleCount, GL_UNSIGNED_INT, M->triangle);
 
   glDisableClientState(GL_COLOR_ARRAY);
+  glDisableClientState(GL_TEXTURE_COORD_ARRAY);
   glDisableClientState(GL_NORMAL_ARRAY);
   glDisableClientState(GL_VERTEX_ARRAY);
 }
@@ -152,27 +300,29 @@ void model_drawGL(model_t* M) {
 
 void model_calculateNormals(model_t* M) {
   size_t iter, vertexA, vertexB, vertexC;
-  float edgeAB[3], edgeAC[3], cross[3], prev[3];
+  unsigned int faceTag, prevTag;
+  float edgeAB[3], edgeAC[3], cross[3];
 
   float* normal = (float*)calloc(M->vertexCount, 3 * sizeof(float));
   if (M->normal != NULL) free(M->normal);
-  prev[0] = 0.f; prev[1] = 0.f; prev[2] = 0.f;
 
   for (iter = 0; iter < M->triangleCount; ++iter) {
     vertexA = 3 * M->triangle[3 * iter + 0];
     vertexB = 3 * M->triangle[3 * iter + 1];
     vertexC = 3 * M->triangle[3 * iter + 2];
 
+    faceTag = M->groupTag[iter];
+    prevTag = (iter != 0) ? M->groupTag[iter - 1] : faceTag;
+
     subtract_vec(edgeAB, &(M->vertex[vertexB]), &(M->vertex[vertexA]));
     subtract_vec(edgeAC, &(M->vertex[vertexC]), &(M->vertex[vertexA]));
     cross_product(cross, edgeAB, edgeAC);
     normalize(cross);
 
-    if (!equal_vec(cross, prev, 0.001f)) {
+    if (faceTag != prevTag) {
       add_vec(&(normal[vertexA]), &(normal[vertexA]), cross);
       add_vec(&(normal[vertexB]), &(normal[vertexB]), cross);
       add_vec(&(normal[vertexC]), &(normal[vertexC]), cross);
-      prev[0] = cross[0]; prev[1] = cross[1]; prev[2] = cross[2];
     } else {
       if (magnitude( &(normal[vertexA]) ) < 0.001f)
         add_vec( &(normal[vertexA]), &(normal[vertexA]), cross );
@@ -252,7 +402,11 @@ void model_randomColors(model_t* M) {
 void model_destroy(model_t* M) {
   free(M->vertex);
   if (M->normal != NULL) free(M->normal);
+  if (M->texcoord != NULL) free(M->texcoord);
   if (M->color != NULL) free(M->color);
+
   free(M->triangle);
+  free(M->groupTag);
+
   free(M);
 }
