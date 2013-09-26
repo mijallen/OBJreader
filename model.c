@@ -35,6 +35,32 @@ struct model {
 
 
 
+unsigned int token_count(char* str) {
+  unsigned int iter, size;
+  unsigned int count = 0;
+  int onToken = 0;
+  char temp;
+
+  size = strlen(str);
+
+  for (iter = 0; iter < size; ++iter) {
+    temp = str[iter];
+
+    if (temp == '\r' || temp == '\n') break;
+    if (temp == ' ' || temp == '\t') {
+      onToken = 0;
+      continue;
+    }
+
+    if (onToken == 0) ++count;
+    onToken = 1;
+  }
+
+  return count;
+}
+
+
+
 void vector_getv(float* vOut, vector_t* V, size_t index) {
   vOut[0] = vector_getf(V, index + 0);
   vOut[1] = vector_getf(V, index + 1);
@@ -52,40 +78,73 @@ void vector_pushv(vector_t* V, float* vec) {
 
 
 void load_dataGather(FILE* infile, vector_t* position_data, vector_t* texcoord_data, vector_t* normal_data) {
-  vector_t *tokens;
-  char line[1024];
-
-  tokens = vector_create();
+  char line[1024], id[32];
+  float vector[3];
 
   rewind(infile);
 
   while (fgets(line, 1023, infile) != NULL) {
-    vector_getTokens(tokens, line, " \t\r\n");
+    sscanf(line, "%s", id);
 
-    if (vector_size(tokens) == 0) {
-      vector_deepClear(tokens);
-      continue;
+    if (strcmp(id, "v") == 0) {
+      sscanf(line, "%s %g %g %g", id, &(vector[0]), &(vector[1]), &(vector[2]));
+      vector_pushv(position_data, vector);
     }
-
-    if (strcmp((char*)vector_get(tokens, 0), "v") == 0) {
-      vector_pushf( position_data, strtod( (char*)vector_get(tokens, 1), NULL ) );
-      vector_pushf( position_data, strtod( (char*)vector_get(tokens, 2), NULL ) );
-      vector_pushf( position_data, strtod( (char*)vector_get(tokens, 3), NULL ) );
+    else if (strcmp(id, "vt") == 0) {
+      sscanf(line, "%s %g %g", id, &(vector[0]), &(vector[1]));
+      vector_pushf(texcoord_data, vector[0]);
+      vector_pushf(texcoord_data, vector[1]);
     }
-    else if (strcmp((char*)vector_get(tokens, 0), "vt") == 0) {
-      vector_pushf( texcoord_data, strtod( (char*)vector_get(tokens, 1), NULL ) );
-      vector_pushf( texcoord_data, strtod( (char*)vector_get(tokens, 2), NULL ) );
-    }
-    else if (strcmp((char*)vector_get(tokens, 0), "vn") == 0) {
-      vector_pushf( normal_data, strtod( (char*)vector_get(tokens, 1), NULL ) );
-      vector_pushf( normal_data, strtod( (char*)vector_get(tokens, 2), NULL ) );
-      vector_pushf( normal_data, strtod( (char*)vector_get(tokens, 3), NULL ) );
+    else if (strcmp(id, "vn") == 0) {
+      sscanf(line, "%s %g %g %g", id, &(vector[0]), &(vector[1]), &(vector[2]));
+      vector_pushv(normal_data, vector);
     }
 
-    vector_deepClear(tokens);
   }
 
-  vector_destroy(tokens);
+}
+
+
+
+void load_parseFaces(FILE* infile, model_t* M, vector_t* pos, vector_t* tex, vector_t* norm) {
+  char line[1024], id[32];
+  float vector[3];
+
+  vector_t *position, *texcoord, *normal;
+  vector_t *triangle, *groupTag;
+
+  position = vector_create();
+  texcoord = vector_create();
+  normal = vector_create();
+
+  triangle = vector_create();
+  groupTag = vector_create();
+
+  rewind(infile);
+
+  while (fgets(line, 1023, infile) != NULL) {
+    sscanf(line, "%s", id);
+
+    if (strcmp(id, "f") != 0) continue;
+
+    
+
+  }
+/*
+  M->vertex = vector_arrayf(position);
+  M->texcoord = vector_arrayf(texcoord);
+  M->normal = vector_arrayf(normal);
+
+  M->triangle = (unsigned int*)vector_arrayi(triangle);
+  M->groupTag = (unsigned int*)vector_arrayi(groupTag);
+*/
+  vector_destroy(position);
+  vector_destroy(texcoord);
+  vector_destroy(normal);
+
+  vector_destroy(triangle);
+  vector_destroy(groupTag);
+
 }
 
 
@@ -135,6 +194,7 @@ model_t* model_load(const char* filePath) {
   infile = fopen(filePath, "r");
 
   load_dataGather(infile, position_data, texcoord_data, normal_data);
+
   rewind(infile);
 
   while (fgets(line, 1023, infile) != NULL) {
