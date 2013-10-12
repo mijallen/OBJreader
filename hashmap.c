@@ -20,7 +20,7 @@ struct hashmap {
 
 struct mapnode {
   char* key;
-  unsigned int value;
+  unsigned int index, value;
 };
 
 
@@ -40,10 +40,11 @@ hashmap_t* hashmap_create() {
 
 
 
-mapnode_t* mapnode_create(char* key, unsigned int value) {
+mapnode_t* mapnode_create(char* key, unsigned int index, unsigned int value) {
   mapnode_t* out = (mapnode_t*)calloc(1, sizeof(mapnode_t));
 
   out->key = key;
+  out->index = index;
   out->value = value;
 
   return out;
@@ -99,6 +100,50 @@ unsigned int mapnode_value(mapnode_t* M) {
 
 
 
+unsigned int mapnode_index(mapnode_t* M) {
+  return M->index;
+}
+
+
+
+char** hashmap_arrayKey(hashmap_t* H) {
+  char** out;
+  unsigned int iter;
+  mapnode_t* curr;
+
+  out = (char**)calloc(H->used, sizeof(char*));
+
+  for (iter = 0; iter < H->capacity; ++iter) {
+    curr = H->elements[iter];
+    if (curr == NULL) continue;
+
+    out[curr->index] = curr->key;
+  }
+
+  return out;
+}
+
+
+
+unsigned int* hashmap_arrayValue(hashmap_t* H) {
+  unsigned int* out;
+  unsigned int iter;
+  mapnode_t* curr;
+
+  out = (unsigned int*)calloc(H->used, sizeof(int));
+
+  for (iter = 0; iter < H->capacity; ++iter) {
+    curr = H->elements[iter];
+    if (curr == NULL) continue;
+
+    out[curr->index] = curr->value;
+  }
+
+  return out;
+}
+
+
+
 /* assisting modifier functions */
 
 
@@ -133,7 +178,7 @@ void hashmap_double(hashmap_t* H) {
 void hashmap_insert(hashmap_t* H, char* key, unsigned int value) {
   unsigned int index;
   char* node_key;
-  mapnode_t* temp = mapnode_create(key, value);
+  mapnode_t* temp = mapnode_create(key, H->used, value);
 
   H->used += 1;
   if (4 * H->used > H->capacity) hashmap_double(H);
@@ -143,6 +188,7 @@ void hashmap_insert(hashmap_t* H, char* key, unsigned int value) {
     node_key = H->elements[index]->key;
     if (strcmp(node_key, key) == 0) {
       free(temp);
+      H->used -= 1;
       return; /* could lead to leaks */
     }
     index = (index + 1) % H->capacity;

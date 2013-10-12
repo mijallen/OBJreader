@@ -70,7 +70,7 @@ void init() {
   glEnable(GL_DEPTH_TEST);
   glDisable(GL_CULL_FACE);
 
-  object = model_load("completeCube.obj");
+  object = model_load("model/completeCube.obj");
   model_calculateNormals(object);
   model_randomColors(object);
 
@@ -84,6 +84,9 @@ void init() {
 void display() {
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
   glDepthFunc(GL_LEQUAL);
+
+  if (keyPress[SDLK_w]) glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+  if (keyPress[SDLK_f]) glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
   glMatrixMode(GL_PROJECTION);
   glLoadIdentity();

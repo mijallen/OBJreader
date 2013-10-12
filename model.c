@@ -35,6 +35,14 @@ struct model {
 
 
 
+char* copyStr(char* src) {
+  char* out = (char*)calloc( strlen(src) + 1, sizeof(char) );
+  sprintf(out, "%s", src);
+  return out;
+}
+
+
+
 unsigned int token_count(char* str) {
   unsigned int iter, size;
   unsigned int count = 0;
@@ -77,6 +85,19 @@ void vector_pushv(vector_t* V, float* vec) {
 
 
 
+int load_validate(FILE* infile) {
+  if (infile == NULL) {
+    fprintf(stderr, "model_load (validation): OBJ file not found\n");
+    return 0;
+  }
+
+  rewind(infile);
+
+  return 1;
+}
+
+
+
 void load_dataGather(FILE* infile, vector_t* position_data, vector_t* texcoord_data, vector_t* normal_data) {
   char line[1024], id[32];
   float vector[3];
@@ -106,45 +127,67 @@ void load_dataGather(FILE* infile, vector_t* position_data, vector_t* texcoord_d
 
 
 
-void load_parseFaces(FILE* infile, model_t* M, vector_t* pos, vector_t* tex, vector_t* norm) {
+hashmap_t* load_hashVertices(FILE* infile, model_t* M) {
   char line[1024], id[32];
-  float vector[3];
+  vector_t *triangle, *groupTag, *tokens;
+  unsigned int iter, faceTag = 0, vertexCount = 0;
+  char *vertex_str, *copy;
+  hashmap_t* out;
+  mapnode_t* result;
 
-  vector_t *position, *texcoord, *normal;
-  vector_t *triangle, *groupTag;
-
-  position = vector_create();
-  texcoord = vector_create();
-  normal = vector_create();
+  rewind(infile);
 
   triangle = vector_create();
   groupTag = vector_create();
+  tokens = vector_create();
 
-  rewind(infile);
+  out = hashmap_create();
 
   while (fgets(line, 1023, infile) != NULL) {
     sscanf(line, "%s", id);
 
     if (strcmp(id, "f") != 0) continue;
+    vector_getTokens(tokens, line, " \t\r\n");
 
-    
+    for (iter = 1; iter < vector_size(tokens); ++iter) {
+      if (iter > 3) {
+        vector_pushi( triangle, vector_geti(triangle, vector_size(triangle) - 3) );
+        vector_pushi( triangle, vector_geti(triangle, vector_size(triangle) - 2) );
+        vector_pushi(groupTag, faceTag);
+      } else if (iter == 3) vector_pushi(groupTag, faceTag);
 
+      vertex_str = (char*)vector_get(tokens, iter);
+      result = hashmap_search(out, vertex_str);
+
+      if (result == NULL) {
+        hashmap_insert(out, copyStr(vertex_str), faceTag);
+        vector_pushi(triangle, vertexCount);
+        vertexCount += 1;
+      } else {
+        vector_pushi(triangle, mapnode_index(result));
+      }
+    }
+    faceTag += 1;
+
+    vector_deepClear(tokens);
   }
-/*
-  M->vertex = vector_arrayf(position);
-  M->texcoord = vector_arrayf(texcoord);
-  M->normal = vector_arrayf(normal);
 
-  M->triangle = (unsigned int*)vector_arrayi(triangle);
-  M->groupTag = (unsigned int*)vector_arrayi(groupTag);
-*/
-  vector_destroy(position);
-  vector_destroy(texcoord);
-  vector_destroy(normal);
+  printf("---triangle data---\n");
+  for (iter = 0; iter < vector_size(groupTag); ++iter) {
+    printf(" +triangle: %u %u %u\n", vector_geti(triangle, 3 * iter + 0),
+                                     vector_geti(triangle, 3 * iter + 1),
+                                     vector_geti(triangle, 3 * iter + 2));
+    printf("  -groupTag: %u\n", vector_geti(groupTag, iter));
+  }
 
-  vector_destroy(triangle);
+  hashmap_deepClear(out);
+  hashmap_destroy(out);
+
+  vector_destroy(tokens);
   vector_destroy(groupTag);
+  vector_destroy(triangle);
 
+  return NULL;
 }
 
 
@@ -173,9 +216,14 @@ model_t* model_load(const char* filePath) {
   char *vertex_str, *copy;
 
   mapnode_t* result;
-  hashmap_t* vertices = hashmap_create();
+  hashmap_t* vertices;
+
+  infile = fopen(filePath, "r");
+  if (!load_validate(infile)) return NULL;
 
   out = (model_t*)calloc(1, sizeof(model_t));
+  vertices = load_hashVertices(infile, out);
+  vertices = hashmap_create();
 
   position_data = vector_create();
   texcoord_data = vector_create();
@@ -190,8 +238,6 @@ model_t* model_load(const char* filePath) {
 
   tokens = vector_create();
   face_elements = vector_create();
-
-  infile = fopen(filePath, "r");
 
   load_dataGather(infile, position_data, texcoord_data, normal_data);
 
@@ -249,6 +295,7 @@ model_t* model_load(const char* filePath) {
 
             ++vertex_count;
           } else {
+            printf("found vertex with value %u\n", mapnode_value(result));
             vector_pushi(triangle, mapnode_value(result));
 
             free(copy);
@@ -257,6 +304,7 @@ model_t* model_load(const char* filePath) {
         }
 
         vector_pushi(groupTag, faceTag);
+        printf("faceTag = %u\n", faceTag);
       }
 
       ++faceTag;
