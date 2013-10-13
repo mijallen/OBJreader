@@ -101,26 +101,50 @@ int load_validate(FILE* infile) {
 void load_dataGather(FILE* infile, vector_t* position_data, vector_t* texcoord_data, vector_t* normal_data) {
   char line[1024], id[32];
   float vector[3];
+  unsigned int iter;
 
   rewind(infile);
 
   while (fgets(line, 1023, infile) != NULL) {
+    printf("line = %s", line);
+
+    if (token_count(line) == 0) continue;
     sscanf(line, "%s", id);
 
-    if (strcmp(id, "v") == 0) {
+    if (strcmp(id, "v") == 0) { printf(" -v line detected-\n");
       sscanf(line, "%s %g %g %g", id, &(vector[0]), &(vector[1]), &(vector[2]));
       vector_pushv(position_data, vector);
     }
-    else if (strcmp(id, "vt") == 0) {
+    else if (strcmp(id, "vt") == 0) { printf(" -vt line detected-\n");
       sscanf(line, "%s %g %g", id, &(vector[0]), &(vector[1]));
       vector_pushf(texcoord_data, vector[0]);
       vector_pushf(texcoord_data, vector[1]);
     }
-    else if (strcmp(id, "vn") == 0) {
+    else if (strcmp(id, "vn") == 0) { printf(" -vn line detected-\n");
       sscanf(line, "%s %g %g %g", id, &(vector[0]), &(vector[1]), &(vector[2]));
       vector_pushv(normal_data, vector);
     }
 
+  }
+
+  printf("---position data (%u floats)---\n", vector_size(position_data));
+  for (iter = 0; iter < vector_size(position_data) / 3; ++iter) {
+    printf(" +position: %g %g %g\n", vector_getf(position_data, 3 * iter + 0),
+                                     vector_getf(position_data, 3 * iter + 1),
+                                     vector_getf(position_data, 3 * iter + 2));
+  }
+
+  printf("---texcoord data (%u floats)---\n", vector_size(texcoord_data));
+  for (iter = 0; iter < vector_size(texcoord_data) / 2; ++iter) {
+    printf(" +texcoord: %g %g\n", vector_getf(texcoord_data, 2 * iter + 0),
+                                  vector_getf(texcoord_data, 2 * iter + 1));
+  }
+
+  printf("---normal data (%u floats)---\n", vector_size(normal_data));
+  for (iter = 0; iter < vector_size(normal_data) / 3; ++iter) {
+    printf(" +normal: %g %g %g\n", vector_getf(normal_data, 3 * iter + 0),
+                                   vector_getf(normal_data, 3 * iter + 1),
+                                   vector_getf(normal_data, 3 * iter + 2));
   }
 
 }
@@ -277,8 +301,6 @@ model_t* model_load(const char* filePath) {
             if (vector_size(face_elements) > 2)
               normal_index = strtol( (char*)vector_get(face_elements, 2), NULL, 10 ) - 1;
 
-            vector_deepClear(face_elements);
-
             vector_getv(position_temp, position_data, 3 * position_index);
             if (vector_size(face_elements) > 1)
               vector_getv(texcoord_temp, texcoord_data, 3 * texcoord_index);
@@ -290,6 +312,8 @@ model_t* model_load(const char* filePath) {
               vector_pushv(texcoord, texcoord_temp);
             if (vector_size(face_elements) > 2)
               vector_pushv(normal, normal_temp);
+
+            vector_deepClear(face_elements);
 
             vector_pushi(triangle, vertex_count);
 
@@ -327,6 +351,40 @@ model_t* model_load(const char* filePath) {
 
   out->triangle = (unsigned int*)vector_arrayi(triangle);
   out->groupTag = (unsigned int*)vector_arrayi(groupTag);
+
+  printf("---model data---\n");
+
+  printf(" -position data-\n");
+  for (iter = 0; iter < out->vertexCount; ++iter) {
+    printf("  +position: %g %g %g\n", out->vertex[3 * iter + 0],
+                                      out->vertex[3 * iter + 1],
+                                      out->vertex[3 * iter + 2]);
+  }
+
+  printf(" -texcoord data-\n");
+  for (iter = 0; iter < out->vertexCount; ++iter) {
+    printf("  +texcoord: %g %g\n", out->texcoord[2 * iter + 0],
+                                   out->texcoord[2 * iter + 1]);
+  }
+
+  printf(" -normal data-\n");
+  for (iter = 0; iter < out->vertexCount; ++iter) {
+    printf("  +normal: %g %g %g\n", out->normal[3 * iter + 0],
+                                    out->normal[3 * iter + 1],
+                                    out->normal[3 * iter + 2]);
+  }
+
+  printf(" -triangle data-\n");
+  for (iter = 0; iter < out->triangleCount; ++iter) {
+    printf("  +triangle: %u %u %u\n", out->triangle[3 * iter + 0],
+                                      out->triangle[3 * iter + 1],
+                                      out->triangle[3 * iter + 2]);
+  }
+
+  printf(" -group tag data-\n");
+  for (iter = 0; iter < out->triangleCount; ++iter) {
+    printf("  -groupTag: %u\n", out->groupTag[iter]);
+  }
 
   vector_destroy(position_data);
   vector_destroy(texcoord_data);

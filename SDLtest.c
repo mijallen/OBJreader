@@ -70,8 +70,8 @@ void init() {
   glEnable(GL_DEPTH_TEST);
   glDisable(GL_CULL_FACE);
 
-  object = model_load("model/completeCube.obj");
-  model_calculateNormals(object);
+  object = model_load("completeCube.obj");
+  //model_calculateNormals(object);
   model_randomColors(object);
 
   model_center(object);
