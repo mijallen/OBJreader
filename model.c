@@ -101,63 +101,41 @@ int load_validate(FILE* infile) {
 void load_dataGather(FILE* infile, vector_t* position_data, vector_t* texcoord_data, vector_t* normal_data) {
   char line[1024], id[32];
   float vector[3];
-  unsigned int iter;
 
   rewind(infile);
 
   while (fgets(line, 1023, infile) != NULL) {
-    printf("line = %s", line);
-
     if (token_count(line) == 0) continue;
     sscanf(line, "%s", id);
 
-    if (strcmp(id, "v") == 0) { printf(" -v line detected-\n");
+    if (strcmp(id, "v") == 0) {
       sscanf(line, "%s %g %g %g", id, &(vector[0]), &(vector[1]), &(vector[2]));
       vector_pushv(position_data, vector);
     }
-    else if (strcmp(id, "vt") == 0) { printf(" -vt line detected-\n");
+    else if (strcmp(id, "vt") == 0) {
       sscanf(line, "%s %g %g", id, &(vector[0]), &(vector[1]));
       vector_pushf(texcoord_data, vector[0]);
       vector_pushf(texcoord_data, vector[1]);
     }
-    else if (strcmp(id, "vn") == 0) { printf(" -vn line detected-\n");
+    else if (strcmp(id, "vn") == 0) {
       sscanf(line, "%s %g %g %g", id, &(vector[0]), &(vector[1]), &(vector[2]));
       vector_pushv(normal_data, vector);
     }
 
   }
 
-  printf("---position data (%u floats)---\n", vector_size(position_data));
-  for (iter = 0; iter < vector_size(position_data) / 3; ++iter) {
-    printf(" +position: %g %g %g\n", vector_getf(position_data, 3 * iter + 0),
-                                     vector_getf(position_data, 3 * iter + 1),
-                                     vector_getf(position_data, 3 * iter + 2));
-  }
-
-  printf("---texcoord data (%u floats)---\n", vector_size(texcoord_data));
-  for (iter = 0; iter < vector_size(texcoord_data) / 2; ++iter) {
-    printf(" +texcoord: %g %g\n", vector_getf(texcoord_data, 2 * iter + 0),
-                                  vector_getf(texcoord_data, 2 * iter + 1));
-  }
-
-  printf("---normal data (%u floats)---\n", vector_size(normal_data));
-  for (iter = 0; iter < vector_size(normal_data) / 3; ++iter) {
-    printf(" +normal: %g %g %g\n", vector_getf(normal_data, 3 * iter + 0),
-                                   vector_getf(normal_data, 3 * iter + 1),
-                                   vector_getf(normal_data, 3 * iter + 2));
-  }
-
 }
 
 
 
-hashmap_t* load_hashVertices(FILE* infile, model_t* M) {
+char** load_hashVertices(FILE* infile, model_t* M) {
   char line[1024], id[32];
   vector_t *triangle, *groupTag, *tokens;
   unsigned int iter, faceTag = 0, vertexCount = 0;
-  char *vertex_str, *copy;
+  char *vertex_str;
   hashmap_t* out;
   mapnode_t* result;
+  char** output;
 
   rewind(infile);
 
@@ -196,22 +174,68 @@ hashmap_t* load_hashVertices(FILE* infile, model_t* M) {
     vector_deepClear(tokens);
   }
 
-  printf("---triangle data---\n");
-  for (iter = 0; iter < vector_size(groupTag); ++iter) {
-    printf(" +triangle: %u %u %u\n", vector_geti(triangle, 3 * iter + 0),
-                                     vector_geti(triangle, 3 * iter + 1),
-                                     vector_geti(triangle, 3 * iter + 2));
-    printf("  -groupTag: %u\n", vector_geti(groupTag, iter));
-  }
+  M->triangleCount = vector_size(triangle) / 3;
+  M->vertexCount = hashmap_used(out);
 
-  hashmap_deepClear(out);
-  hashmap_destroy(out);
+  M->triangle = (unsigned int*)vector_arrayi(triangle);
+  M->groupTag = (unsigned int*)vector_arrayi(groupTag);
 
   vector_destroy(tokens);
   vector_destroy(groupTag);
   vector_destroy(triangle);
 
-  return NULL;
+  output = hashmap_arrayKey(out);
+  hashmap_destroy(out);
+
+  return output;
+}
+
+
+
+void load_constructModel(model_t* M, char** vertex_data, vector_t* position_data, vector_t* texcoord_data, vector_t* normal_data) {
+  unsigned int iter, vertex_index, texcoord_index, normal_index;
+  vector_t* vertex;
+  vector_t* texcoord;
+  vector_t* normal;
+  float temp[3];
+
+  vertex = vector_create();
+  texcoord = vector_create();
+  normal = vector_create();
+
+  for (iter = 0; iter < M->vertexCount; ++iter) {
+    sscanf(vertex_data[iter], "%u/%u/%u", &vertex_index, &texcoord_index, &normal_index);
+    --vertex_index;
+    --texcoord_index;
+    --normal_index;
+
+    vector_getv(temp, position_data, 3 * vertex_index);
+    vector_pushv(vertex, temp);
+
+    if (vector_size(texcoord_data) > 0) {
+      temp[0] = vector_getf(texcoord_data, 2 * texcoord_index + 0);
+      temp[1] = vector_getf(texcoord_data, 2 * texcoord_index + 1);
+      vector_pushf(texcoord, temp[0]);
+      vector_pushf(texcoord, temp[1]);
+    }
+
+    if (vector_size(normal_data) > 0) {
+      vector_getv(temp, normal_data, 3 * normal_index);
+      vector_pushv(normal, temp);
+    }
+
+    free(vertex_data[iter]);
+  }
+
+  M->vertex = vector_arrayf(vertex);
+  if (vector_size(texcoord_data) > 0) M->texcoord = vector_arrayf(texcoord);
+  if (vector_size(normal_data) > 0) M->normal = vector_arrayf(normal);
+
+  vector_destroy(vertex);
+  vector_destroy(texcoord);
+  vector_destroy(normal);
+
+  free(vertex_data);
 }
 
 
@@ -224,133 +248,26 @@ model_t* model_load(const char* filePath) {
   model_t *out;
 
   vector_t *position_data, *texcoord_data, *normal_data;
-  vector_t *position, *texcoord, *normal;
 
-  vector_t *triangle, *groupTag;
-  vector_t *tokens, *face_elements;
-
-  unsigned int iter, vertex_iter, collection[3];
-  unsigned int faceTag = 0, vertex_count = 0;
-  unsigned int position_index, texcoord_index, normal_index;
-
-  float position_temp[3], texcoord_temp[3], normal_temp[3];
+  unsigned int iter;
 
   FILE* infile;
-  char line[1024];
-  char *vertex_str, *copy;
-
-  mapnode_t* result;
-  hashmap_t* vertices;
+  char** temp;
 
   infile = fopen(filePath, "r");
   if (!load_validate(infile)) return NULL;
 
   out = (model_t*)calloc(1, sizeof(model_t));
-  vertices = load_hashVertices(infile, out);
-  vertices = hashmap_create();
+  temp = load_hashVertices(infile, out);
 
   position_data = vector_create();
   texcoord_data = vector_create();
   normal_data = vector_create();
 
-  position = vector_create();
-  texcoord = vector_create();
-  normal = vector_create();
-
-  triangle = vector_create();
-  groupTag = vector_create();
-
-  tokens = vector_create();
-  face_elements = vector_create();
-
   load_dataGather(infile, position_data, texcoord_data, normal_data);
-
-  rewind(infile);
-
-  while (fgets(line, 1023, infile) != NULL) {
-    vector_getTokens(tokens, line, " \t\r\n");
-
-    if (vector_size(tokens) == 0) {
-      vector_deepClear(tokens);
-      continue;
-    }
-
-    if (strcmp((char*)vector_get(tokens, 0), "f") == 0) {
-      for (iter = 2; iter < vector_size(tokens) - 1; ++iter) {
-
-        collection[0] = 1;
-        collection[1] = iter;
-        collection[2] = iter + 1;
-
-        for (vertex_iter = 0; vertex_iter < 3; ++vertex_iter) {
-
-          vertex_str = (char*)vector_get(tokens, collection[vertex_iter]);
-          copy = (char*)calloc(strlen(vertex_str) + 1, sizeof(char));
-          sprintf(copy, "%s", vertex_str);
-
-          result = hashmap_search(vertices, copy);
-          if (result == NULL) {
-            printf("inserted vertex data '%s' with value %u\n", copy, vertex_count);
-            hashmap_insert(vertices, copy, vertex_count);
-
-            vector_getTokens(face_elements, (char*)vector_get(tokens, collection[vertex_iter]), "/");
-
-            position_index = strtol( (char*)vector_get(face_elements, 0), NULL, 10 ) - 1;
-            if (vector_size(face_elements) > 1)
-              texcoord_index = strtol( (char*)vector_get(face_elements, 1), NULL, 10 ) - 1;
-            if (vector_size(face_elements) > 2)
-              normal_index = strtol( (char*)vector_get(face_elements, 2), NULL, 10 ) - 1;
-
-            vector_getv(position_temp, position_data, 3 * position_index);
-            if (vector_size(face_elements) > 1)
-              vector_getv(texcoord_temp, texcoord_data, 3 * texcoord_index);
-            if (vector_size(face_elements) > 2)
-              vector_getv(normal_temp, normal_data, 3 * normal_index);
-
-            vector_pushv(position, position_temp);
-            if (vector_size(face_elements) > 1)
-              vector_pushv(texcoord, texcoord_temp);
-            if (vector_size(face_elements) > 2)
-              vector_pushv(normal, normal_temp);
-
-            vector_deepClear(face_elements);
-
-            vector_pushi(triangle, vertex_count);
-
-            ++vertex_count;
-          } else {
-            printf("found vertex with value %u\n", mapnode_value(result));
-            vector_pushi(triangle, mapnode_value(result));
-
-            free(copy);
-          }
-
-        }
-
-        vector_pushi(groupTag, faceTag);
-        printf("faceTag = %u\n", faceTag);
-      }
-
-      ++faceTag;
-    }
-
-    vector_deepClear(tokens);
-  }
+  load_constructModel(out, temp, position_data, texcoord_data, normal_data);
 
   fclose(infile);
-
-  hashmap_deepClear(vertices);
-  hashmap_destroy(vertices);
-
-  out->vertexCount = vector_size(position) / 3;
-  out->triangleCount = vector_size(triangle) / 3;
-
-  out->vertex = vector_arrayf(position);
-  out->texcoord = (vector_size(texcoord) > 0) ? vector_arrayf(texcoord) : NULL;
-  out->normal = (vector_size(normal) > 0) ? vector_arrayf(normal) : NULL;
-
-  out->triangle = (unsigned int*)vector_arrayi(triangle);
-  out->groupTag = (unsigned int*)vector_arrayi(groupTag);
 
   printf("---model data---\n");
 
@@ -361,17 +278,21 @@ model_t* model_load(const char* filePath) {
                                       out->vertex[3 * iter + 2]);
   }
 
-  printf(" -texcoord data-\n");
-  for (iter = 0; iter < out->vertexCount; ++iter) {
-    printf("  +texcoord: %g %g\n", out->texcoord[2 * iter + 0],
-                                   out->texcoord[2 * iter + 1]);
+  if (out->texcoord != NULL) {
+    printf(" -texcoord data-\n");
+    for (iter = 0; iter < out->vertexCount; ++iter) {
+      printf("  +texcoord: %g %g\n", out->texcoord[2 * iter + 0],
+                                     out->texcoord[2 * iter + 1]);
+    }
   }
 
-  printf(" -normal data-\n");
-  for (iter = 0; iter < out->vertexCount; ++iter) {
-    printf("  +normal: %g %g %g\n", out->normal[3 * iter + 0],
-                                    out->normal[3 * iter + 1],
-                                    out->normal[3 * iter + 2]);
+  if (out->normal != NULL) {
+    printf(" -normal data-\n");
+    for (iter = 0; iter < out->vertexCount; ++iter) {
+      printf("  +normal: %g %g %g\n", out->normal[3 * iter + 0],
+                                      out->normal[3 * iter + 1],
+                                      out->normal[3 * iter + 2]);
+    }
   }
 
   printf(" -triangle data-\n");
@@ -389,16 +310,6 @@ model_t* model_load(const char* filePath) {
   vector_destroy(position_data);
   vector_destroy(texcoord_data);
   vector_destroy(normal_data);
-
-  vector_destroy(position);
-  vector_destroy(texcoord);
-  vector_destroy(normal);
-
-  vector_destroy(triangle);
-  vector_destroy(groupTag);
-
-  vector_destroy(tokens);
-  vector_destroy(face_elements);
 
   return out;
 }
@@ -478,7 +389,8 @@ void model_calculateNormals(model_t* M) {
     vertexC = 3 * M->triangle[3 * iter + 2];
 
     faceTag = M->groupTag[iter];
-    prevTag = (iter != 0) ? M->groupTag[iter - 1] : faceTag;
+    //prevTag = (iter != 0) ? M->groupTag[iter - 1] : faceTag;
+    prevTag = (iter != 0) ? M->groupTag[iter - 1] : 0xFFFFFFFF;
 
     subtract_vec(edgeAB, &(M->vertex[vertexB]), &(M->vertex[vertexA]));
     subtract_vec(edgeAC, &(M->vertex[vertexC]), &(M->vertex[vertexA]));
@@ -487,16 +399,9 @@ void model_calculateNormals(model_t* M) {
 
     if (faceTag != prevTag) {
       add_vec(&(normal[vertexA]), &(normal[vertexA]), cross);
-      add_vec(&(normal[vertexB]), &(normal[vertexB]), cross);
-      add_vec(&(normal[vertexC]), &(normal[vertexC]), cross);
-    } else {
-      if (magnitude( &(normal[vertexA]) ) < 0.001f)
-        add_vec( &(normal[vertexA]), &(normal[vertexA]), cross );
-      if (magnitude( &(normal[vertexB]) ) < 0.001f)
-        add_vec( &(normal[vertexB]), &(normal[vertexB]), cross );
-      if (magnitude( &(normal[vertexC]) ) < 0.001f)
-        add_vec( &(normal[vertexC]), &(normal[vertexC]), cross );
+      add_vec(&(normal[vertexB]), &(normal[vertexB]), cross); 
     }
+    add_vec(&(normal[vertexC]), &(normal[vertexC]), cross);
   }
 
   for (iter = 0; iter < M->vertexCount; ++iter) normalize( &(normal[3 * iter]) );

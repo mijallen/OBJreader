@@ -71,7 +71,7 @@ void init() {
   glDisable(GL_CULL_FACE);
 
   object = model_load("completeCube.obj");
-  //model_calculateNormals(object);
+  model_calculateNormals(object);
   model_randomColors(object);
 
   model_center(object);
@@ -95,8 +95,8 @@ void display() {
   glMatrixMode(GL_MODELVIEW);
   glLoadIdentity();
   glTranslatef(0.f, 0.f, -2.f);
-  glRotatef(angle, 0.f, 0.f, 1.f);
   glRotatef(2.f * angle, 0.f, 1.f, 0.f);
+  glRotatef(angle, 0.f, 0.f, 1.f);
   glScalef(scale, scale, scale);
 
   glColor3f(1.f, 1.f, 1.f);
